@@ -6,6 +6,9 @@
 local append              = table.append
 local concatenate         = table.concat
 local create_token        = token.create
+local direct_get_data     = node.direct.getdata
+local direct_set_data     = node.direct.setdata
+local direct_set_field    = node.direct.setfield
 local getmetatable        = getmetatable
 local insert              = table.insert
 local ipairs              = ipairs
@@ -26,12 +29,14 @@ local scan_toks           = token.scan_toks
 local setmetatable        = setmetatable
 local sorted_pairs        = table.sortedpairs
 local sprint              = tex.sprint
+local string_char         = string.char
 local tex_get             = tex.get
 local token               = token
 local token_get_csname    = token.get_csname
 local token_get_mode      = token.get_mode
 local token_set_char      = token.set_char
 local token_set_lua       = token.set_lua
+local tonumber            = tonumber
 local unpack              = table.unpack
 local write_token         = token.put_next
 
@@ -169,6 +174,26 @@ local to_chardef = memoized(function(int)
 end)
 
 local weak_metatable = { __mode = "kv" }
+
+local token_userdata_to_table
+do
+    local scratch = node.direct.new("whatsit", "user_defined")
+    direct_set_field(scratch, "type", ("t"):byte())
+    function token_userdata_to_table(userdata)
+        direct_set_data(scratch, userdata)
+        return direct_get_data(scratch)
+    end
+end
+
+local token_userdata_to_string
+do
+    local scratch = node.direct.new("whatsit", "special")
+    function token_userdata_to_string(userdata)
+        direct_set_data(scratch, userdata)
+        return tostring(direct_get_data(scratch))
+    end
+end
+
 
 
 -------------------------------
@@ -603,3 +628,370 @@ do
     end, }
     setmetatable({}, every_gc)
 end
+
+
+-----------------------
+--- Regex Functions ---
+-----------------------
+
+-- Convert to special active character csnames
+local ACTIVE_CSNAME_PREFIX = "\xEF\xBF\xBF"
+local CS_TOKEN_FLAG        = 0x1FFFFFFF
+local single_char_cs       = {}
+
+for i = 0, 255 do
+    local csname = ACTIVE_CSNAME_PREFIX .. string_char(i)
+    token_set_char(csname, 0)
+    local cs = create_token(csname).tok - CS_TOKEN_FLAG
+    single_char_cs[i] = cs
+end
+
+-- Regex patterns
+local compile_regex
+do
+    -- Switch the mode for testing
+    local output_pattern = false
+
+    -- LPeg functions
+    local C     = lpeg.C
+    local Cf    = lpeg.Cf
+    local Ct    = lpeg.Ct
+    local match = lpeg.match
+    local P     = lpeg.P
+    local R     = lpeg.R
+    local S     = lpeg.S
+
+    -- Base patterns
+    local any     = P(1)
+    local escape  = P "\\"
+    local l_brace = P "{"
+    local r_brace = P "}"
+    local space   = (P " ")^-1
+    local digits  = R "09"
+
+    local times = function(pattern, minimum, maximum)
+        maximum = maximum or minimum
+        return pattern^minimum - pattern^(maximum + 1)
+    end
+
+    -- Atoms
+    local atoms   = {}
+
+    -- Hexadecimal escape sequences
+    local hex_chars   = R("09", "AF", "af")
+    local hex_escape  = escape * (P "x") * space
+    local hex_convert = function (hex)
+        local char = string_char(tonumber(hex, 16))
+        if output_pattern then
+            return P(char)
+        else
+            return "hex: " .. char
+        end
+    end
+
+    local hex_pattern = hex_escape * (
+        C(times(hex_chars, 2)) +
+        (l_brace * C(hex_chars^1) * r_brace)
+    ) / hex_convert
+
+    insert(atoms, hex_pattern)
+
+    -- General escape sequences
+    for i = 0, 255 do
+        local char = string_char(i)
+        if char:match("%W") then
+            local pattern = escape * P(char) * space
+
+            local replacement
+            if output_pattern then
+                replacement = function () return P(char) end
+            else
+                replacement = "escaped: " .. char
+            end
+
+            insert(atoms, pattern / replacement)
+        end
+    end
+
+    -- Special characters
+    local special_characters = {
+        a = "\a",
+        e = "\x1B",
+        f = "\f",
+        n = "\n",
+        r = "\r",
+        t = "\t",
+    }
+
+    for find_char, replace_char in pairs(special_characters) do
+        local pattern = escape * P(find_char) * space
+
+        local replacement
+        if output_pattern then
+            replacement = function () return P(replace_char) end
+        else
+            replacement = "special: " .. replace_char
+        end
+
+        insert(atoms, pattern / replacement)
+    end
+
+    -- Dot
+    local dot_pattern = P "."
+
+    local dot_replacement
+    if output_pattern then
+        dot_replacement = any
+    else
+        dot_replacement = "any"
+    end
+
+    insert(atoms, dot_pattern / dot_replacement)
+
+    -- Predefined character classes
+    local character_classes = {
+        d = { "digits", digits },
+        h = { "horizontal space", (S "\t ") },
+        s = { "space", (S " \t\n\f\r") },
+        v = { "vertical space", (S "\n\v\f\r") },
+        w = { "word", R("az", "AZ", "09") + (P "_") },
+    }
+
+    local char_class_patterns = P(false)
+    for find_char, replace_char in pairs(character_classes) do
+        local pattern = escape * P(find_char) * space
+
+        local replacement
+        if output_pattern then
+            replacement = replace_char[2]
+        else
+            replacement = "class: " .. replace_char[1]
+        end
+
+        insert(atoms, pattern / replacement)
+        char_class_patterns = char_class_patterns + (pattern / replacement)
+    end
+
+    for find_char, replace_char in pairs(character_classes) do
+        local pattern = escape * P(find_char:upper()) * space
+
+        local replacement
+        if output_pattern then
+            replacement = any - replace_char[2]
+        else
+            replacement = "class: NOT " .. replace_char[1]
+        end
+
+        insert(atoms, pattern / replacement)
+        char_class_patterns = char_class_patterns + (pattern / replacement)
+    end
+
+    -- Posix character classes
+    local posix_classes = lpeg.locale()
+    local posix_class_name_pattern = P(false)
+    for name, pattern in pairs(posix_classes) do
+        posix_class_name_pattern = posix_class_name_pattern + (P(name) / name)
+    end
+
+    local maybe_negate = C((P "^")^-1)
+    local posix_class_pattern = (P "[:") * maybe_negate *
+                                C(posix_class_name_pattern) * (P ":]")
+    local posix_class_replacement = function(negate, name)
+        if output_pattern then
+            if negate == "^" then
+                return any - posix_classes[name]
+            else
+                return posix_classes[name]
+            end
+        else
+            if negate == "^" then
+                return "posix: NOT " .. name
+            else
+                return "posix: " .. name
+            end
+        end
+    end
+
+    insert(atoms, posix_class_pattern / posix_class_replacement)
+
+    -- Arbitrary character classes
+    local range_pattern = Ct(C(any) * (P "-") * C(any))
+    local class_pattern = (P "[") * maybe_negate * Ct((
+                              range_pattern +
+                              char_class_patterns +
+                              C(any - P "]")
+                          )^1) * (P "]")
+    local class_replacement = function(negate, chars)
+        if output_pattern then
+            local ranges = {}
+            for _, range in ipairs(chars) do
+                if type(range) == "table" then
+                    insert(ranges, concatenate(range))
+                else
+                    insert(ranges, range:rep(2))
+                end
+            end
+
+            local pattern = R(unpack(ranges))
+            if negate == "^" then
+                return any - pattern
+            else
+                return pattern
+            end
+        else
+            local ranges = {}
+            for _, range in ipairs(chars) do
+                if type(range) == "table" then
+                    insert(ranges, concatenate(range, "-"))
+                else
+                    insert(ranges, range)
+                end
+            end
+
+            local pattern = concatenate(ranges, ", ")
+            if negate == "^" then
+                return "class: NOT " .. pattern
+            else
+                return "class: " .. pattern
+            end
+        end
+    end
+
+    insert(atoms, class_pattern / class_replacement)
+
+    -- Join all the atoms together
+    local atoms_pattern = P(false)
+    for _, atom in ipairs(atoms) do
+        atoms_pattern = atoms_pattern + atom
+    end
+
+    -- Quantifiers
+    local quantifiers = {}
+
+    local format_atom = function(atom, quantifier)
+        return "<" .. atom .. "> [" .. (quantifier or "") .. "]"
+    end
+
+    -- Zero or one
+    insert(quantifiers, { "?", (P "?"), function(pattern)
+        if output_pattern then
+            return pattern^-1
+        else
+            return format_atom(pattern, "?")
+        end
+    end, })
+
+    -- Zero or more
+    insert(quantifiers, { "*", (P "*"), function(pattern)
+        if output_pattern then
+            return pattern^0
+        else
+            return format_atom(pattern, "*")
+        end
+    end, })
+
+    -- One or more
+    insert(quantifiers, { "+", (P "+"), function(pattern)
+        if output_pattern then
+            return pattern^1
+        else
+            return format_atom(pattern, "+")
+        end
+    end, })
+
+    -- Exactly n
+    insert(quantifiers, {
+        "n", l_brace * C(digits^1) * r_brace,
+        function(pattern, n)
+            if output_pattern then
+                return times(pattern, n)
+            else
+                return format_atom(pattern, n .. "-" .. n)
+            end
+        end,
+    })
+
+    -- n or more
+    insert(quantifiers, {
+        "n+", l_brace * C(digits^1) * (P ",") * space * r_brace,
+        function(pattern, n)
+            if output_pattern then
+                return pattern^n
+            else
+                return format_atom(pattern, n .. "–oo")
+            end
+        end,
+    })
+
+    -- n to m
+    insert(quantifiers, {
+        "n-m", l_brace * C(digits^1) * (P ",") * space * C(digits^1) * r_brace,
+        function(pattern, n, m)
+            if output_pattern then
+                return times(pattern, n, m)
+            else
+                return format_atom(pattern, n .. "-" .. m)
+            end
+        end,
+    })
+
+    -- No quantifier
+    insert(quantifiers, { "", P(true), function(pattern)
+        if output_pattern then
+            return pattern
+        else
+            return format_atom(pattern)
+        end
+    end, })
+
+    -- Join all the quantifiers together
+    local quantifiers_pattern      = P(false)
+    local quantifiers_replacements = {}
+    for _, quantifier_pair in ipairs(quantifiers) do
+        local name, quantifier, replacement = unpack(quantifier_pair)
+        quantifiers_pattern = quantifiers_pattern + (quantifier / function(...)
+            return name, ...
+        end)
+        quantifiers_replacements[name] = replacement
+    end
+
+    local function replace_quantifier(atom, quantifier, ...)
+        return quantifiers_replacements[quantifier](atom, ...)
+    end
+
+    -- Convert the rules to a new pattern
+    local regex_pattern = Cf(
+        ((atoms_pattern * space * quantifiers_pattern) / replace_quantifier)^0,
+        function(...)
+            if output_pattern then
+                local pattern = P(true)
+
+                for _, rule in ipairs { ... } do
+                    pattern = pattern * rule
+                end
+
+                return pattern
+            else
+                return concatenate({ ... }, " ")
+            end
+        end
+    )
+
+    function compile_regex(regex)
+        return match(regex_pattern, regex)
+    end
+end
+
+define_macro {
+    module      = "lregex",
+    name        = "set",
+    arguments   = { "csname", "string" },
+    visibility  = "public",
+    no_scan     = true,
+    func = function()
+        local name      = scan_csname()
+        local regex_str = scan_argument(false)
+        local regex_pat = compile_regex(regex_str)
+        print(regex_pat)
+    end,
+}

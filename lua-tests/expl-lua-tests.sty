@@ -25,7 +25,7 @@
             if~ mode == "linked" then~
                 line = line:gsub("prop_new", "prop_new_linked")
             end~
-            return~ line:gsub("lprop", "prop")
+            return~ line:gsub("lprop", "prop"):gsub("lregex", "regex")
         end, "fix_names")
     elseif~ mode == "lua" then~
         % Do nothing
