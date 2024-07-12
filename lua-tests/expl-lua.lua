@@ -650,9 +650,6 @@ end
 -- Regex patterns
 local compile_regex
 do
-    -- Switch the mode for testing
-    local output_pattern = true
-
     -- LPeg functions
     local anywhere = lpeg.anywhere
     local C        = lpeg.C
@@ -693,11 +690,7 @@ do
     local hex_escape  = escape * (P "x") * space
     local hex_convert = function (hex)
         local char = string_char(tonumber(hex, 16))
-        if output_pattern then
-            return P(char)
-        else
-            return "hex: " .. char
-        end
+        return P(char)
     end
 
     local hex_pattern = hex_escape * (
@@ -710,15 +703,10 @@ do
     -- General escape sequences
     for i = 0, 255 do
         local char = string_char(i)
-        if char:match("%W") then
-            local pattern = escape * P(char) * space
 
-            local replacement
-            if output_pattern then
-                replacement = value(P(char))
-            else
-                replacement = "escaped: " .. char
-            end
+        if char:match("%W") then
+            local pattern     = escape * P(char) * space
+            local replacement = value(P(char))
 
             insert(atoms, pattern / replacement)
         end
@@ -735,29 +723,14 @@ do
     }
 
     for find_char, replace_char in pairs(special_characters) do
-        local pattern = escape * P(find_char) * space
-
-        local replacement
-        if output_pattern then
-            replacement = value(P(replace_char))
-        else
-            replacement = "special: " .. replace_char
-        end
+        local pattern     = escape * P(find_char) * space
+        local replacement = value(P(replace_char))
 
         insert(atoms, pattern / replacement)
     end
 
     -- Dot
-    local dot_pattern = P "."
-
-    local dot_replacement
-    if output_pattern then
-        dot_replacement = value(any)
-    else
-        dot_replacement = "any"
-    end
-
-    insert(atoms, dot_pattern / dot_replacement)
+    insert(atoms, (P ".") / value(any))
 
     -- Predefined character classes
     local character_classes = {
@@ -771,14 +744,8 @@ do
     local char_class_patterns = P(false)
     for find_char, replace_char in pairs(character_classes) do
         local name, pattern = unpack(replace_char)
-        local escape_seq = escape * P(find_char) * space
-
-        local replacement
-        if output_pattern then
-            replacement = value(pattern)
-        else
-            replacement = "class: " .. name
-        end
+        local escape_seq    = escape * P(find_char) * space
+        local replacement   = value(pattern)
 
         insert(atoms, escape_seq / replacement)
         char_class_patterns = char_class_patterns + (escape_seq / replacement)
@@ -786,14 +753,8 @@ do
 
     for find_char, replace_char in pairs(character_classes) do
         local name, pattern = unpack(replace_char)
-        local escape_seq = escape * P(find_char:upper()) * space
-
-        local replacement
-        if output_pattern then
-            replacement = value(any - pattern)
-        else
-            replacement = "class: NOT " .. name
-        end
+        local escape_seq    = escape * P(find_char:upper()) * space
+        local replacement   = value(any - pattern)
 
         insert(atoms, escape_seq / replacement)
         char_class_patterns = char_class_patterns + (escape_seq / replacement)
@@ -810,18 +771,10 @@ do
     local posix_class_pattern = (P "[:") * maybe_negate *
                                 C(posix_class_name_pattern) * (P ":]")
     local posix_class_replacement = function(negate, name)
-        if output_pattern then
-            if negate == "^" then
-                return any - posix_classes[name]
-            else
-                return posix_classes[name]
-            end
+        if negate == "^" then
+            return any - posix_classes[name]
         else
-            if negate == "^" then
-                return "posix: NOT " .. name
-            else
-                return "posix: " .. name
-            end
+            return posix_classes[name]
         end
     end
 
@@ -835,51 +788,29 @@ do
                               C(any - P "]")
                           )^1) * (P "]")
     local class_replacement = function(negate, chars)
-        if output_pattern then
-            local ranges = {}
-            for _, range in ipairs(chars) do
-                if type(range) == "table" then
-                    insert(ranges, concatenate(range))
-                else
-                    insert(ranges, range:rep(2))
-                end
-            end
-
-            local pattern = R(unpack(ranges))
-            if negate == "^" then
-                return any - pattern
+        local ranges = {}
+        for _, range in ipairs(chars) do
+            if type(range) == "table" then
+                insert(ranges, concatenate(range))
             else
-                return pattern
+                insert(ranges, range:rep(2))
             end
+        end
+
+        local pattern = R(unpack(ranges))
+        if negate == "^" then
+            return any - pattern
         else
-            local ranges = {}
-            for _, range in ipairs(chars) do
-                if type(range) == "table" then
-                    insert(ranges, concatenate(range, "-"))
-                else
-                    insert(ranges, range)
-                end
-            end
-
-            local pattern = concatenate(ranges, ", ")
-            if negate == "^" then
-                return "class: NOT " .. pattern
-            else
-                return "class: " .. pattern
-            end
+            return pattern
         end
     end
 
     insert(atoms, class_pattern / class_replacement)
 
     -- Any regular character
-    local regular_char_pattern = posix_classes.alnum
+    local regular_char_pattern     = posix_classes.alnum
     local regular_char_replacement = function(char)
-        if output_pattern then
-            return P(char)
-        else
-            return "char: " .. char
-        end
+        return P(char)
     end
 
     insert(atoms, regular_char_pattern / regular_char_replacement)
@@ -899,75 +830,38 @@ do
 
     -- Zero or one
     insert(quantifiers, { "?", (P "?"), function(pattern)
-        if output_pattern then
-            return pattern^-1
-        else
-            return format_atom(pattern, "?")
-        end
+        return pattern^-1
     end, })
 
     -- Zero or more
     insert(quantifiers, { "*", (P "*"), function(pattern)
-        if output_pattern then
-            return pattern^0
-        else
-            return format_atom(pattern, "*")
-        end
+        return pattern^0
     end, })
 
     -- One or more
     insert(quantifiers, { "+", (P "+"), function(pattern)
-        if output_pattern then
-            return pattern^1
-        else
-            return format_atom(pattern, "+")
-        end
+        return pattern^1
     end, })
 
     -- Exactly n
-    insert(quantifiers, {
-        "n", l_brace * C(digits^1) * r_brace,
-        function(pattern, n)
-            if output_pattern then
-                return times(pattern, n)
-            else
-                return format_atom(pattern, n .. "-" .. n)
-            end
-        end,
-    })
+    insert(quantifiers, { "n", l_brace * C(digits^1) * r_brace, times, })
 
     -- n or more
     insert(quantifiers, {
         "n+", l_brace * C(digits^1) * (P ",") * space * r_brace,
         function(pattern, n)
-            if output_pattern then
-                return pattern^n
-            else
-                return format_atom(pattern, n .. "–oo")
-            end
+            return pattern^n
         end,
     })
 
     -- n to m
     insert(quantifiers, {
         "n-m", l_brace * C(digits^1) * (P ",") * space * C(digits^1) * r_brace,
-        function(pattern, n, m)
-            if output_pattern then
-                return times(pattern, n, m)
-            else
-                return format_atom(pattern, n .. "-" .. m)
-            end
-        end,
+        times,
     })
 
     -- No quantifier
-    insert(quantifiers, { "", P(true), function(pattern)
-        if output_pattern then
-            return pattern
-        else
-            return format_atom(pattern)
-        end
-    end, })
+    insert(quantifiers, { "", P(true), P, })
 
     -- Join all the quantifiers together
     local quantifiers_pattern      = P(false)
@@ -995,17 +889,12 @@ do
                 end
             end
 
-            if output_pattern then
-                local pattern = P(true)
-
-                for _, rule in ipairs { ... } do
-                    pattern = pattern * rule
-                end
-
-                return pattern
-            else
-                return concatenate({ ... }, " ")
+            local pattern = P(true)
+            for _, rule in ipairs { ... } do
+                pattern = pattern * rule
             end
+
+            return pattern
         end
     )
 
