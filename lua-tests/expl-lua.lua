@@ -665,26 +665,29 @@ do
     local Cs        = lpeg.Cs
     local Ct        = lpeg.Ct
     local locale    = lpeg.locale
+    local lpeg_type = lpeg.type
     local match     = lpeg.match
     local P         = lpeg.P
     local R         = lpeg.R
     local S         = lpeg.S
-    local lpeg_type = lpeg.type
     local utfR      = lpeg.utfR
     local V         = lpeg.V
 
-    -- Base patterns
-    local any     = P(1)
-    local escape  = P "\\"
-    local l_brace = P "{"
-    local r_brace = P "}"
-    local space   = (P " ")^-1
-    local digits  = R "09"
-
-    local times = function(pattern, minimum, maximum)
+    -- Patched LPeg functions
+    local times = function (pattern, minimum, maximum)
         maximum = maximum or minimum
         return pattern^minimum - pattern^(maximum + 1)
     end
+
+    -- Base patterns
+    local any     = P(1)
+    local digits  = R "09"
+    local escape  = P "\\"
+    local l_brace = P "{"
+    local l_paren = P "("
+    local r_brace = P "}"
+    local r_paren = P ")"
+    local space   = (P " ")^-1
 
     local value = function(...)
         local args = { ... }
@@ -881,8 +884,8 @@ do
         quantifiers_replacements[name] = replacement
     end
 
-    local function replace_quantifier(atom, quantifier, ...)
-        return quantifiers_replacements[quantifier](atom, ...)
+    local function replace_quantifier(item, quantifier, ...)
+        return quantifiers_replacements[quantifier](item, ...)
     end
 
     -- Create the full grammar to parse the regex
@@ -890,11 +893,13 @@ do
         "regex",
         atom       = atoms_pattern,
         quantifier = quantifiers_pattern,
-        group      = P("TODO"),
+        group      = l_paren *
+                     (((V "regex") - l_paren - r_paren) + (V "group"))^0 *
+                     r_paren,
         item       = (V "atom") + (V "group"),
         section    = ((V "item") * space * (V "quantifier")) /
                      replace_quantifier,
-        regex      = Cf(Cc(true) * (V "section")^0, function(...)
+        regex      = Cf(Cc(true) * (V "section")^1, function(...)
             if select("#", ...) == true then
                 return function(text)
                     return false
@@ -918,29 +923,32 @@ do
         end
 
         local pattern = match(regex_pattern, regex)
-        if type(pattern) == "string" then
+        local pattern_type = lpeg_type(pattern) or type(pattern)
+
+        if pattern_type == "string" then
             return pattern
-        elseif type(pattern) == "boolean" then
+        elseif not pattern then
             return function(text)
                 return false
             end
-        else
+        elseif pattern_type == "pattern" then
             return function(text)
                 return match(anywhere(pattern), text)
             end
+        else
+            error("Invalid pattern type: " .. pattern_type)
         end
     end
 
     -- TODO:
-    --   - Groups
-    --   - Alternation
-    --   - Lazy quantifiers
-    --   - Catcodes
-    --   - Control Sequences
+    --   - Alternation (|)
+    --   - Lazy quantifiers (?)
+    --   - Catcodes (\c)
+    --   - Control Sequences (\c{name})
     --   - Begin/end (^/\A and $/\Z/\z)
     --   - Weird escapes: \K, \b, \B, \G
-    --   - Case-insensitive options
-    --   - Replacement text escapes
+    --   - Case-insensitive options ((?i), (?-i))
+    --   - Replacement text escapes (\0, \1, \c, \u)
 end
 
 local regex_storage = {}

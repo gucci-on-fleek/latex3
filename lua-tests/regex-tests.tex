@@ -11,11 +11,6 @@
 %%% Regex Tests %%%
 %%%%%%%%%%%%%%%%%%%
 
-\lregex_new:N \l__example_A_lregex
-\lregex_set:Nn \l__example_A_lregex { \w{1,2} }
-
-% \cs_if_exist_use:c { @@end }
-
 %% From m3regex001.lvt:
 \cs_new:Nn \__example_regex:nn {
     \__example_section:n { {#1} ~=>~ {#2} }
@@ -30,6 +25,11 @@
     % }
 }
 
+
+\__example_regex:nn { (ab)+c } { ababc }
+\__example_regex:nn { a(bb)+c } { abbc }
+\__example_regex:nn { a(bb)+c } { abbbbc }
+\__example_regex:nn { a(bb)+c } { abbbc }
 \__example_regex:nn { a } { a }
 \__example_regex:nn { a } { aaa }
 \__example_regex:nn { a{3} } { aaa }
@@ -45,7 +45,6 @@
 \__example_regex:nn { abc*!? } { aaa }
 \__example_regex:nn { abc*!? } { XabcX }
 \__example_regex:nn { abc*!? } { aababcccc!! }
-\csname @@end\endcsname
 \__example_regex:nn { ab(c*)c? } { }
 \__example_regex:nn { ab(c*)c? } { ababccc? }
 \__example_regex:nn { (a)(b)* } { abb }
