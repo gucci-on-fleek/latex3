@@ -14,31 +14,28 @@
 \lregex_new:N \l__example_A_lregex
 \lregex_set:Nn \l__example_A_lregex { \w{1,2} }
 
-\cs_if_exist_use:c { @@end }
+% \cs_if_exist_use:c { @@end }
 
 %% From m3regex001.lvt:
 \cs_new:Nn \__example_regex:nn {
     \__example_section:n { {#1} ~=>~ {#2} }
-    \regex_match:nnTF { #1 } { #2 } {
+    \lregex_match:nnTF { #1 } { #2 } {
         \iow_term:n { Matched: }
     } {
         \iow_term:n { Not~ matched. }
     }
-    \regex_extract_all:nnN { #1 } { #2 } \l_tmpa_seq
-    \seq_map_indexed_inline:Nn \l_tmpa_seq {
-        \iow_term:n { (##1)~ ##2 }
-    }
+    % \lregex_extract_all:nnN { #1 } { #2 } \l_tmpa_seq
+    % \seq_map_indexed_inline:Nn \l_tmpa_seq {
+    %     \iow_term:n { (##1)~ ##2 }
+    % }
 }
 
-\__example_regex:nn { (a)(b)* } { abb }
-\__example_regex:nn { (a)(b|c*)* } { abcccbcc }
-\__example_regex:nn { (a*b+) } { abab }
+\__example_regex:nn { a } { a }
+\__example_regex:nn { a } { aaa }
+\__example_regex:nn { a{3} } { aaa }
+\__example_regex:nn { a{4} } { aaa }
+\__example_regex:nn { a+b } { aaab }
 \__example_regex:nn { a } { b }
-\__example_regex:nn { (a*) } { aaab }
-\__example_regex:nn { (La|Xe)T(e(X))(\ (It\ )?is\ nice!*)*  ! } { LaTeX~is~nice!~It~is~nice!!! }
-\__example_regex:nn { (La|Xe)T(e(X))(\ (It\ )?is\ nice!*)* } { XeTeX~is~nice~is~nice!! }
-\__example_regex:nn { (a)b?c } { ac }
-\__example_regex:nn { a(b*)c } { abdabbc }
 \__example_regex:nn { abcabcabX } { abcabcabcabXabc }
 \__example_regex:nn { } { }
 \__example_regex:nn { a } { }
@@ -50,3 +47,12 @@
 \__example_regex:nn { abc*!? } { aababcccc!! }
 \__example_regex:nn { ab(c*)c? } { }
 \__example_regex:nn { ab(c*)c? } { ababccc? }
+\__example_regex:nn { (a)(b)* } { abb }
+\__example_regex:nn { (a)(b|c*)* } { abcccbcc }
+\__example_regex:nn { (a*b+) } { abab }
+\__example_regex:nn { (a*) } { aaab }
+\__example_regex:nn { (La|Xe)T(e(X))(\ (It\ )?is\ nice!*)*  ! } { LaTeX~is~nice!~It~is~nice!!! }
+\__example_regex:nn { (La|Xe)T(e(X))(\ (It\ )?is\ nice!*)* } { XeTeX~is~nice~is~nice!! }
+\__example_regex:nn { (a)b?c } { ac }
+\__example_regex:nn { a(b*)c } { abdabbc }
+

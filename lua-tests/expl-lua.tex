@@ -61,3 +61,23 @@
 %%%%%%%%%%%%%%%%%%%%%%%
 
 \cs_set_eq:NN \lregex_new:N \tl_new:N
+
+\lregex_new:N \l__lregex_tmpa_regex
+
+
+\prg_new_conditional:Nnn \lregex_match:Nn { T, F, TF } {
+    \if_predicate:w \lregex_match_p:Nn #1 { #2 }
+        \prg_return_true:
+    \else:
+        \prg_return_false:
+    \fi:
+}
+
+\prg_new_conditional:Nnn \lregex_match:nn { T, F, TF, p } {
+    \lregex_set:Nn \l__lregex_tmpa_regex { #1 }
+    \if_predicate:w \lregex_match_p:Nn \l__lregex_tmpa_regex { #2 }
+        \prg_return_true:
+    \else:
+        \prg_return_false:
+    \fi:
+}

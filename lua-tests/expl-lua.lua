@@ -19,6 +19,7 @@ local new_lua_function    = luatexbase.new_luafunction
 local new_token           = token.new
 local next                = next
 local pairs               = pairs
+local run_tokens          = tex.runtoks
 local scan_argument       = token.scan_argument
 local scan_csname         = token.scan_csname
 local scan_expanded       = token.scan_token
@@ -650,16 +651,19 @@ end
 local compile_regex
 do
     -- Switch the mode for testing
-    local output_pattern = false
+    local output_pattern = true
 
     -- LPeg functions
-    local C     = lpeg.C
-    local Cf    = lpeg.Cf
-    local Ct    = lpeg.Ct
-    local match = lpeg.match
-    local P     = lpeg.P
-    local R     = lpeg.R
-    local S     = lpeg.S
+    local anywhere = lpeg.anywhere
+    local C        = lpeg.C
+    local Cc       = lpeg.Cc
+    local Cf       = lpeg.Cf
+    local Cs       = lpeg.Cs
+    local Ct       = lpeg.Ct
+    local match    = lpeg.match
+    local P        = lpeg.P
+    local R        = lpeg.R
+    local S        = lpeg.S
 
     -- Base patterns
     local any     = P(1)
@@ -672,6 +676,13 @@ do
     local times = function(pattern, minimum, maximum)
         maximum = maximum or minimum
         return pattern^minimum - pattern^(maximum + 1)
+    end
+
+    local value = function(...)
+        local args = { ... }
+        return function()
+            return unpack(args)
+        end
     end
 
     -- Atoms
@@ -704,7 +715,7 @@ do
 
             local replacement
             if output_pattern then
-                replacement = function () return P(char) end
+                replacement = value(P(char))
             else
                 replacement = "escaped: " .. char
             end
@@ -728,7 +739,7 @@ do
 
         local replacement
         if output_pattern then
-            replacement = function () return P(replace_char) end
+            replacement = value(P(replace_char))
         else
             replacement = "special: " .. replace_char
         end
@@ -741,7 +752,7 @@ do
 
     local dot_replacement
     if output_pattern then
-        dot_replacement = any
+        dot_replacement = value(any)
     else
         dot_replacement = "any"
     end
@@ -759,31 +770,33 @@ do
 
     local char_class_patterns = P(false)
     for find_char, replace_char in pairs(character_classes) do
-        local pattern = escape * P(find_char) * space
+        local name, pattern = unpack(replace_char)
+        local escape_seq = escape * P(find_char) * space
 
         local replacement
         if output_pattern then
-            replacement = replace_char[2]
+            replacement = value(pattern)
         else
-            replacement = "class: " .. replace_char[1]
+            replacement = "class: " .. name
         end
 
-        insert(atoms, pattern / replacement)
-        char_class_patterns = char_class_patterns + (pattern / replacement)
+        insert(atoms, escape_seq / replacement)
+        char_class_patterns = char_class_patterns + (escape_seq / replacement)
     end
 
     for find_char, replace_char in pairs(character_classes) do
-        local pattern = escape * P(find_char:upper()) * space
+        local name, pattern = unpack(replace_char)
+        local escape_seq = escape * P(find_char:upper()) * space
 
         local replacement
         if output_pattern then
-            replacement = any - replace_char[2]
+            replacement = value(any - pattern)
         else
-            replacement = "class: NOT " .. replace_char[1]
+            replacement = "class: NOT " .. name
         end
 
-        insert(atoms, pattern / replacement)
-        char_class_patterns = char_class_patterns + (pattern / replacement)
+        insert(atoms, escape_seq / replacement)
+        char_class_patterns = char_class_patterns + (escape_seq / replacement)
     end
 
     -- Posix character classes
@@ -858,6 +871,18 @@ do
     end
 
     insert(atoms, class_pattern / class_replacement)
+
+    -- Any regular character
+    local regular_char_pattern = posix_classes.alnum
+    local regular_char_replacement = function(char)
+        if output_pattern then
+            return P(char)
+        else
+            return "char: " .. char
+        end
+    end
+
+    insert(atoms, regular_char_pattern / regular_char_replacement)
 
     -- Join all the atoms together
     local atoms_pattern = P(false)
@@ -961,8 +986,15 @@ do
 
     -- Convert the rules to a new pattern
     local regex_pattern = Cf(
+        Cc(true) *
         ((atoms_pattern * space * quantifiers_pattern) / replace_quantifier)^0,
         function(...)
+            if select("#", ...) == true then
+                return function(text)
+                    return false
+                end
+            end
+
             if output_pattern then
                 local pattern = P(true)
 
@@ -978,9 +1010,39 @@ do
     )
 
     function compile_regex(regex)
-        return match(regex_pattern, regex)
+        if not regex:match("%S") then
+            return function(text)
+                return text
+            end
+        end
+
+        local pattern = match(regex_pattern, regex)
+        if type(pattern) == "string" then
+            return pattern
+        elseif type(pattern) == "boolean" then
+            return function(text)
+                return false
+            end
+        else
+            return function(text)
+                return match(anywhere(pattern), text)
+            end
+        end
     end
+
+    -- TODO:
+    --   - Groups
+    --   - Alternation
+    --   - Lazy quantifiers
+    --   - Catcodes
+    --   - Control Sequences
+    --   - Begin/end (^/\A and $/\Z/\z)
+    --   - Weird escapes: \K, \b, \B, \G
+    --   - Case-insensitive options
+    --   - Replacement text escapes
 end
+
+local regex_storage = {}
 
 define_macro {
     module      = "lregex",
@@ -992,6 +1054,26 @@ define_macro {
         local name      = scan_csname()
         local regex_str = scan_argument(false)
         local regex_pat = compile_regex(regex_str)
-        print(regex_pat)
+        regex_storage[name] = regex_pat
+    end,
+}
+
+define_macro {
+    module      = "lregex",
+    name        = "match_p",
+    arguments   = { "csname", "string" },
+    visibility  = "public",
+    no_scan     = true,
+    func = function()
+        local name      = scan_csname()
+        local regex_pat = regex_storage[name]
+        local str       = scan_argument(false)
+
+        local match = regex_pat(str)
+        if match then
+            write_token(to_chardef[1])
+        else
+            write_token(to_chardef[0])
+        end
     end,
 }
