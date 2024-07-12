@@ -651,16 +651,27 @@ end
 local compile_regex
 do
     -- LPeg functions
-    local anywhere = lpeg.anywhere
-    local C        = lpeg.C
-    local Cc       = lpeg.Cc
-    local Cf       = lpeg.Cf
-    local Cs       = lpeg.Cs
-    local Ct       = lpeg.Ct
-    local match    = lpeg.match
-    local P        = lpeg.P
-    local R        = lpeg.R
-    local S        = lpeg.S
+    local lpeg      = require "lpeg"
+    local anywhere  = lpeg.anywhere
+    local B         = lpeg.B
+    local C         = lpeg.C
+    local Carg      = lpeg.Carg
+    local Cb        = lpeg.Cb
+    local Cc        = lpeg.Cc
+    local Cf        = lpeg.Cf
+    local Cg        = lpeg.Cg
+    local Cmt       = lpeg.Cmt
+    local Cp        = lpeg.Cp
+    local Cs        = lpeg.Cs
+    local Ct        = lpeg.Ct
+    local locale    = lpeg.locale
+    local match     = lpeg.match
+    local P         = lpeg.P
+    local R         = lpeg.R
+    local S         = lpeg.S
+    local lpeg_type = lpeg.type
+    local utfR      = lpeg.utfR
+    local V         = lpeg.V
 
     -- Base patterns
     local any     = P(1)
@@ -824,10 +835,6 @@ do
     -- Quantifiers
     local quantifiers = {}
 
-    local format_atom = function(atom, quantifier)
-        return "<" .. atom .. "> [" .. (quantifier or "") .. "]"
-    end
-
     -- Zero or one
     insert(quantifiers, { "?", (P "?"), function(pattern)
         return pattern^-1
@@ -878,11 +885,16 @@ do
         return quantifiers_replacements[quantifier](atom, ...)
     end
 
-    -- Convert the rules to a new pattern
-    local regex_pattern = Cf(
-        Cc(true) *
-        ((atoms_pattern * space * quantifiers_pattern) / replace_quantifier)^0,
-        function(...)
+    -- Create the full grammar to parse the regex
+    local regex_pattern = P {
+        "regex",
+        atom       = atoms_pattern,
+        quantifier = quantifiers_pattern,
+        group      = P("TODO"),
+        item       = (V "atom") + (V "group"),
+        section    = ((V "item") * space * (V "quantifier")) /
+                     replace_quantifier,
+        regex      = Cf(Cc(true) * (V "section")^0, function(...)
             if select("#", ...) == true then
                 return function(text)
                     return false
@@ -895,8 +907,8 @@ do
             end
 
             return pattern
-        end
-    )
+        end),
+    }
 
     function compile_regex(regex)
         if not regex:match("%S") then
