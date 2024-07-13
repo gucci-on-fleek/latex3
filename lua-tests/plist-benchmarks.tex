@@ -5,6 +5,7 @@
 \ExplSyntaxOn
 \RequirePackage { expl-lua-tests }
 \str_set:Nn \l__example_section_str { prop }
+\fp_gset:Nn \g_benchmark_duration_target_fp { 1 }
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -15,7 +16,6 @@
 \cs_generate_variant:Nn \use_none:n { e }
 \cs_generate_variant:Nn \lprop_put_from_keyval:Nn { Ne }
 \cs_generate_variant:Nn \lprop_gput_from_keyval:Nn { Ne }
-\fp_gset:Nn \g_benchmark_duration_target_fp { 1 }
 
 %% Tests
 \__example_section:n { local-put-same }

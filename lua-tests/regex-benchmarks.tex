@@ -1,0 +1,33 @@
+%%%%%%%%%%%%%%%%%%%%%%
+%%% Initialization %%%
+%%%%%%%%%%%%%%%%%%%%%%
+
+\ExplSyntaxOn
+\RequirePackage { expl-lua-tests }
+\str_set:Nn \l__example_section_str { regex }
+\fp_gset:Nn \g_benchmark_duration_target_fp { 1 }
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Regex Benchmarks %%%
+%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Setup
+\cs_generate_variant:Nn \use_none:n { e }
+
+\cs_new:Nn \__example_regex:nn {
+    \__example_section:n { {#1} ~=>~ {#2} }
+    \lregex_set:Nn \l__lregex_tmpa_regex { #1 }
+    \benchmark:n {
+        \lregex_match:NnTF \l__lregex_tmpa_regex { #2 } { } { }
+    }
+}
+
+%% Tests
+\__example_regex:nn { a } { a }
+\__example_regex:nn { a } { z }
+\__example_regex:nn { (a|b*)*c } { ac }
+\__example_regex:nn { a(bb)+c } { abbbbc }
+\__example_regex:nn { abcabcabX } { abcabcabcabXabc }
+\__example_regex:nn { abc*!? } { aababcccc!! }
+\__example_regex:nn { (La|Xe)T(e(X))(\ (It\ )?is\ nice!*)*  ! } { LaTeX~is~nice!~It~is~nice!!! }
