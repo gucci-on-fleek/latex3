@@ -18,6 +18,7 @@ local merge_hash          = table.merged
 local new_lua_function    = luatexbase.new_luafunction
 local new_token           = token.new
 local next                = next
+local pack                = table.pack
 local pairs               = pairs
 local run_tokens          = tex.runtoks
 local scan_argument       = token.scan_argument
@@ -673,10 +674,25 @@ do
     local utfR      = lpeg.utfR
     local V         = lpeg.V
 
-    -- Patched LPeg functions
+    -- Utility functions
     local times = function (pattern, minimum, maximum)
         maximum = maximum or minimum
         return pattern^minimum - pattern^(maximum + 1)
+    end
+
+    local lpeg_inspect = function (...)
+        print("--- --- --- ---")
+        local items = pack(...)
+        for i = 1, items.n do
+            print("@@@ " .. i)
+            local item = items[i]
+            if lpeg_type(item) then
+                item = lpeg.ptree(item)
+            end
+            print(item)
+        end
+        print("--- --- --- ---")
+        return ...
     end
 
     -- Base patterns
@@ -845,7 +861,20 @@ do
 
     -- Zero or more
     insert(quantifiers, { "*", (P "*"), function(pattern)
-        return pattern^0
+        if not match(pattern, "") then
+            return pattern^0
+        else
+            -- Ugh
+            return Cmt(Cc(true), function(str, pos, ...)
+                local new_pos  = pos
+                repeat
+                    pos     = new_pos
+                    new_pos = match(pattern, str, pos)
+                until pos == new_pos
+
+                return new_pos, ...
+            end)
+        end
     end, })
 
     -- One or more
@@ -888,33 +917,45 @@ do
         return quantifiers_replacements[quantifier](item, ...)
     end
 
+    -- Folding functions
+    local do_folds = {
+        ["+"] = function (a, b)
+            if not a then
+                return b
+            else
+                return a + b
+            end
+        end,
+        ["*"] = function (a, b)
+            if not a then
+                return b
+            else
+                return a * b
+            end
+        end,
+    }
+
+    local fold_together = function (operation, pattern)
+        return Cf(Cc(false) * pattern, do_folds[operation])
+    end
+
     -- Create the full grammar to parse the regex
     local regex_pattern = P {
         "regex",
-        atom       = atoms_pattern,
-        quantifier = quantifiers_pattern,
-        group      = l_paren *
-                     (((V "regex") - l_paren - r_paren) + (V "group"))^0 *
-                     r_paren,
-        item       = (V "atom") + (V "group"),
-        section    = ((V "item") * space * (V "quantifier")) /
-                     replace_quantifier,
-        regex      = Cf(Cc(true) * (V "section")^1, function(...)
-            if select("#", ...) == true then
-                return function(text)
-                    return false
-                end
-            end
-
-            local pattern = P(true)
-            for _, rule in ipairs { ... } do
-                pattern = pattern * rule
-            end
-
-            return pattern
-        end),
+        atom        = atoms_pattern,
+        quantifier  = quantifiers_pattern,
+        group       = l_paren *
+                      (((V "regex") - l_paren - r_paren) + (V "group"))^0 *
+                      r_paren,
+        item        = (((V "atom") + (V "group")) * space * (V "quantifier")) /
+                      replace_quantifier,
+        alternation = fold_together("+",
+                                    (V "item")^1 * ((P "|") * (V "item")^1)^1),
+        items       = (V "alternation") + (V "item")^1,
+        regex       = fold_together("*", (V "items")),
     }
 
+    -- Generate a pattern equivalent to the given regex
     function compile_regex(regex)
         if not regex:match("%S") then
             return function(text)
@@ -941,7 +982,6 @@ do
     end
 
     -- TODO:
-    --   - Alternation (|)
     --   - Lazy quantifiers (?)
     --   - Catcodes (\c)
     --   - Control Sequences (\c{name})

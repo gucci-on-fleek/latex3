@@ -25,7 +25,10 @@
     % }
 }
 
-
+\__example_regex:nn { (a|b*)*c } { ac }
+\__example_regex:nn { (a|b*)*c } { bbc }
+\__example_regex:nn { (a|b*)*c } { zc }
+\__example_regex:nn { (a|b*)*c } { z }
 \__example_regex:nn { (ab)+c } { ababc }
 \__example_regex:nn { a(bb)+c } { abbc }
 \__example_regex:nn { a(bb)+c } { abbbbc }
@@ -56,3 +59,44 @@
 \__example_regex:nn { (a)b?c } { ac }
 \__example_regex:nn { a(b*)c } { abdabbc }
 
+\group_begin:
+    \clist_map_function:nN {
+        0, 7, 8, 9, 10, 11, 12, 13, "1B, "1D, "A0, `\#, 255, "7F,
+    } \char_set_catcode_other:n
+
+    \__example_regex:nn { (\..)+ } { . ^^@ . ^^7f .~ }
+    \__example_regex:nn { (d\d)+ } { d/ d0 d1 d2 d3 d4 d5 d6 d7 d8 d9 d: }
+    \__example_regex:nn { (h\h)+ } { h^^H h^^I h~ h~ h^^J }
+    \__example_regex:nn { (s\s)+ } { s^^H s^^K s^^I s^^J s^^L s^^M s~ s^^a0 }
+    \__example_regex:nn { (v\v)+ } { v^^I v^^J v^^K v^^L v^^M v~ }
+    \__example_regex:nn { (w\w)+ } { w/ w: w{ w} w@ w[ w] w^ w` w~ wa wb wc wd wy wz wA wB wZ w_ w0 w9 w? }
+    \__example_regex:nn { (N\N)+ } { Na Nb N* N# N^^7f N^^00 N^^J NN }
+    \__example_regex:nn { (D\D)+ } { D0 D9 D/ D: }
+    \__example_regex:nn { (H\H)+ } { H^^I H~ H^^J Ha H* H^^M }
+    \__example_regex:nn { (S\S)+ } { S^^I S^^J S^^L S^^M S~ Sa S# S@ S^^K S^^@ }
+    \__example_regex:nn { (V\V)+ } { V^^J V^^K V^^L V^^M V^^I V~ Va V^^7f }
+    \__example_regex:nn { (W\W)+ } { Wa Wz WA WZ W_ W0 W9 W? W* W/ W: W{ W} W@ W[ W] W^ W` W? }
+    \__example_regex:nn { \x{0ff} } { abc }
+    \__example_regex:nn { \x{2a}\x{2b}\x{2c}\x{2d}\x{2e}\x{2f}\x{2A}\x{2B}\x{2C}\x{2D}\x{2E}\x{2F}\x 2a \x 2b \x 2c \x 2d \x 2e \x 2f\x 2A \x 2B \x 2C \x 2D \x 2E \x 2F } { *+,-./ *+,-./ *+,-./ *+,-./ }
+    \__example_regex:nn { \a\e\f\n\r\t } { ^^G ^^[ ^^L ^^J ^^M ^^I ^^] }
+    \__example_regex:nn { \/[a-cw-y"-&\<-\?]*?\? } { /abcwxy"#$ $&<=>?? }
+    \__example_regex:nn { \/[a-cw-y"-&\<-\?]*?\? } { /`? /d? /!? /'? /;? /@? }
+    % \__example_regex:nn { [^\W \d _]+ } { ?@[]0349_abcAB_ }
+    \__example_regex:nn { /[^](\x{8}] } { /^^H /] /( /^ }
+\group_end:
+
+% \__example_regex:nn { ((a)*|(b)?|(c)+|!)*?! } { aaabccbaab!a! }
+\__example_regex:nn { ((a*)|(b?)|(c+)|!)*! } { aaabccbaab!aa! }
+% \__example_regex:nn { ((a?|b)*?(aabb)+|cd)+ } { aabcdabaabbabb }
+% \__example_regex:nn { ((a?|b)*?(aabb)+|cd)+ } { aabcabbbabababbb }
+% \__example_regex:nn { ((a?|b)*?(aabb)+|cd)+ } { aabbcdcdaabbaabb }
+\__example_regex:nn { ((a?|b)*(aabb)+|cd)+ } { aabcdabaabbabb }
+\__example_regex:nn { ((a?|b)*(aabb)+|cd)+ } { aabcabbbabababbb }
+\__example_regex:nn { ((a?|b)*(aabb)+|cd)+ } { aabbcdcdaabbaabb }
+% \__example_regex:nn { \b\w*\b.+?\b } { ...abc...def }
+\__example_regex:nn { \b\w*\b.+\b } { ...abc...def }
+\__example_regex:nn { \b\w*\B(.)\b* } { abc* }
+% \__example_regex:nn { ( abc |^def | ghi $ | $ )+ } { def abc abc ghi }
+% \__example_regex:nn { ( abc |^def | ghi $ | $ )+ } { def haldsj }
+% \__example_regex:nn { ( abc |^def | ghi $ | $ )+ } { allikfj abc ghi a }
+% \__example_regex:nn { ( abc |^def | ghi $ | $ )+ } { ~ def abc ghi ~ }
